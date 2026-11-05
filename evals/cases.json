@@ -1,0 +1,94 @@
+[
+  {
+    "id": "happy_path_full",
+    "query": "研究 AAPL、MSFT、NVDA 在 2024-01-01 到 2024-12-31 的 20 日动量并回测",
+    "expect": {
+      "status": "succeeded",
+      "nodes": ["planner_node", "research_node", "quant_node", "human_confirm_node", "risk_node", "fact_check_node", "report_node"],
+      "needs_research": true,
+      "needs_backtest": true,
+      "factor": "momentum_20d",
+      "top_n": 3
+    }
+  },
+  {
+    "id": "research_only_skips_quant",
+    "query": "只查 AAPL 的资料",
+    "llm_raw": {"goal": "g", "needs_research": true, "needs_backtest": false, "needs_risk_audit": false, "missing_params": []},
+    "expect": {
+      "status": "succeeded",
+      "nodes": ["planner_node", "research_node", "report_node"],
+      "needs_research": true,
+      "needs_backtest": false
+    }
+  },
+  {
+    "id": "no_backtest_skips_research_and_quant",
+    "query": "随便聊聊",
+    "llm_raw": {"goal": "g", "needs_research": false, "needs_backtest": false, "needs_risk_audit": false, "missing_params": []},
+    "expect": {
+      "status": "succeeded",
+      "nodes": ["planner_node", "report_node"]
+    }
+  },
+  {
+    "id": "missing_date_blocks",
+    "query": "帮我回测一下动量策略",
+    "llm_raw": {"goal": "g", "needs_research": true, "needs_backtest": true, "needs_risk_audit": true, "missing_params": ["date_range"]},
+    "expect": {
+      "status": "blocked",
+      "nodes": ["planner_node", "await_input_node"],
+      "missing_contains": ["date_range", "universe"],
+      "pending_question_contains": ["回测时间范围"]
+    }
+  },
+  {
+    "id": "unknown_factor_blocks",
+    "query": "用一个不存在的估值因子回测",
+    "llm_raw": {"goal": "g", "needs_research": true, "needs_backtest": true, "needs_risk_audit": true, "missing_params": [], "factor": "估值因子", "factor_direction": "asc"},
+    "expect": {
+      "status": "blocked",
+      "nodes": ["planner_node", "await_input_node"],
+      "pending_question_contains": ["估值因子"]
+    }
+  },
+  {
+    "id": "unsupported_factor_in_query_blocks",
+    "query": "使用估值因子回测",
+    "llm_raw": {"goal": "g", "needs_research": true, "needs_backtest": true, "needs_risk_audit": true, "missing_params": [], "factor": "momentum_20d", "factor_direction": "desc"},
+    "expect": {
+      "status": "blocked",
+      "nodes": ["planner_node", "await_input_node"],
+      "pending_question_contains": ["估值因子"]
+    }
+  },
+  {
+    "id": "index_universe_blocks",
+    "query": "在标普500中使用小市值因子回测",
+    "llm_raw": {"goal": "g", "needs_research": true, "needs_backtest": true, "needs_risk_audit": true, "missing_params": [], "market": "US", "universe": [], "date_range": {"start": "2023-01-01", "end": "2026-01-01"}},
+    "expect": {
+      "status": "blocked",
+      "nodes": ["planner_node", "await_input_node"],
+      "pending_question_contains": ["标普500"]
+    }
+  },
+  {
+    "id": "top_n_extracted",
+    "query": "选出市值最小的10只",
+    "llm_raw": {"goal": "g", "needs_research": true, "needs_backtest": true, "needs_risk_audit": true, "missing_params": [], "market": "US", "universe": ["AAPL", "MSFT"], "date_range": {"start": "2023-01-01", "end": "2026-01-01"}, "top_n": 10},
+    "expect": {
+      "status": "succeeded",
+      "top_n": 10
+    }
+  },
+  {
+    "id": "invalid_json_falls_back",
+    "query": "研究 AAPL 在 2024-01-01 到 2024-12-31 的动量",
+    "llm_raw": "这不是 JSON",
+    "expect": {
+      "status": "succeeded",
+      "nodes": ["planner_node", "research_node", "report_node"],
+      "needs_backtest": false
+    }
+  }
+]
