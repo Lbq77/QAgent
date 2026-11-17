@@ -117,6 +117,7 @@ class RunBacktestInput(BaseModel):
     strategy_config: StrategyConfig
     start: str = ""
     end: str = ""
+    snapshot_id: str = ""  # 行情快照 id；有则优先取快照，无则重新拉取
 
 
 class BacktestMetrics(BaseModel):

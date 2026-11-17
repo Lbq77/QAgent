@@ -265,7 +265,12 @@ def quant_node(state: AgentState, ctx: RuntimeContext) -> dict:
         ctx,
         "quant",
         "run_backtest",
-        {"strategy_config": config, "start": start, "end": end},
+        {
+            "strategy_config": config,
+            "start": start,
+            "end": end,
+            "snapshot_id": state.snapshot_id,  # 复用 research 的行情快照，避免重复拉取
+        },
     )
     out = QuantOutput(
         strategy_config=config.model_dump(),

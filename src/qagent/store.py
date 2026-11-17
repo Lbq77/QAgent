@@ -102,3 +102,13 @@ def get_result_store() -> ResultStore:
 def list_experiments() -> list[dict[str, Any]]:
     """实验记录：所有回测运行的配置 + 指标 + 时间戳。"""
     return get_result_store().list()
+
+
+def save_market_snapshot(snapshot_id: str, payload: dict[str, Any]) -> None:
+    """保存行情快照（records 已序列化为 dict 列表，keyed by snapshot_id）。"""
+    get_result_store().put(snapshot_id, payload)
+
+
+def load_market_snapshot(snapshot_id: str) -> dict[str, Any] | None:
+    """按 snapshot_id 取回行情快照；不存在返回 None。"""
+    return get_result_store().get(snapshot_id)

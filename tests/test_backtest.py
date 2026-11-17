@@ -185,3 +185,49 @@ def test_run_backtest_no_lookahead():
         {"strategy_config": cfg, "start": "2024-01-01", "end": "2024-12-31"}
     )
     assert load_result(out.ref)["selected"] == ["UP"]
+
+
+def test_run_backtest_reuses_market_snapshot():
+    """research 存了行情快照后，quant 应按 snapshot_id 复用，不再重复 fetch。"""
+    from qagent.tools.research import GetMarketData
+
+    clear_results()
+
+    class _CountingProvider(MarketDataProvider):
+        name = "counting"
+
+        def __init__(self) -> None:
+            self.count = 0
+
+        def fetch(self, symbol: str, start: str, end: str, market: str = "US"):
+            self.count += 1
+            return _records(symbol, _series(100, 80, 0.02))
+
+    provider = _CountingProvider()
+    svc = MarketDataService([provider])
+
+    # 1) get_market_data 拉数据并落快照
+    md = GetMarketData(service=svc).call(
+        {"symbols": ["A", "B"], "start": "2024-01-01", "end": "2024-12-31", "market": "US"}
+    )
+    assert md.snapshot_id.startswith("snap_")
+    assert provider.count == 2  # 拉了 A、B 两只
+
+    # 2) run_backtest 带 snapshot_id → 复用快照，不再 fetch
+    cfg = StrategyConfig(
+        market="US",
+        universe=["A", "B"],
+        ranking={"factor": "momentum_20d", "direction": "desc"},
+        top_n=2,
+        lookback_days=60,
+    )
+    out = RunBacktest(service=svc).call(
+        {
+            "strategy_config": cfg,
+            "start": "2024-01-01",
+            "end": "2024-12-31",
+            "snapshot_id": md.snapshot_id,
+        }
+    )
+    assert out.ref.startswith("bt_")
+    assert provider.count == 2  # 没有新增 fetch，说明复用了快照

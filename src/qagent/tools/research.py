@@ -51,8 +51,21 @@ class GetMarketData(Tool):
                 sources.add(res.source)
             except MarketDataError:
                 missing.append(sym)
+
+        snapshot_id = f"snap_{uuid.uuid4().hex[:8]}"
+        # 行情快照外置：完整 records 按 snapshot_id 存库，下游 quant 按 id 取回，避免重复拉取
+        from ..store import save_market_snapshot
+
+        save_market_snapshot(
+            snapshot_id,
+            {
+                "source": "+".join(sorted(sources)),
+                "records": [r.model_dump() for r in records],
+                "missing": missing,
+            },
+        )
         return GetMarketDataOutput(
-            snapshot_id=f"snap_{uuid.uuid4().hex[:8]}",
+            snapshot_id=snapshot_id,
             source="+".join(sorted(sources)),
             records=records,
             missing=missing,

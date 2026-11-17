@@ -138,14 +138,32 @@ class RunBacktest(Tool):
     def __init__(self, service: MarketDataService | None = None) -> None:
         self._service = service or build_default_service()
 
+    def _records_from_snapshot(self, snapshot_id: str) -> dict[str, list[MarketRecord]]:
+        """按 snapshot_id 取回 research 存下的行情快照，还原成 {symbol: [MarketRecord]}；无则返回空。"""
+        if not snapshot_id:
+            return {}
+        from ..store import load_market_snapshot
+
+        payload = load_market_snapshot(snapshot_id)
+        if not payload:
+            return {}
+        out: dict[str, list[MarketRecord]] = {}
+        for r in payload.get("records", []):
+            rec = MarketRecord(**r)
+            out.setdefault(rec.symbol, []).append(rec)
+        return out
+
     def execute(self, args: RunBacktestInput) -> RunBacktestOutput:
         config = args.strategy_config
         ref = f"bt_{uuid.uuid4().hex[:8]}"
         lookback = max(int(config.lookback_days), 1)
         try:
-            records_map = _fetch_records(
-                self._service, config.universe, args.start, args.end, config.market
-            )
+            # 优先复用 research 已经拉好的行情快照（按 snapshot_id 取），取不到再重新拉
+            records_map = self._records_from_snapshot(args.snapshot_id)
+            if not records_map:
+                records_map = _fetch_records(
+                    self._service, config.universe, args.start, args.end, config.market
+                )
             # 信号窗 / 持有窗分离：因子只用前 lookback 个交易日，回测只用其后（t+1 起）
             signal_closes: dict[str, list[float]] = {}
             signal_volumes: dict[str, list[float]] = {}
