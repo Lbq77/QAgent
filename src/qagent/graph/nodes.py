@@ -539,6 +539,13 @@ def report_node(state: AgentState, ctx: RuntimeContext) -> dict:
             facts["selected"] = payload.get("selected", [])
             facts["cost_scenarios"] = payload.get("cost_scenarios", {})
 
+    # 成本敏感度：三档成本对比（0x/default/2x），展示在报告里
+    cost_text = ""
+    for key in ("0x", "default", "2x"):
+        scen = (facts.get("cost_scenarios") or {}).get(key)
+        if scen and scen.get("annual_return") is not None:
+            cost_text += ("" if not cost_text else " / ") + f"{key} 年化 {scen['annual_return']:.2%}"
+
     summary = _generate_summary(ctx, facts)
     summary_mismatches, summary_checked = _verify_summary_claims(summary, facts)
     if summary_mismatches:
@@ -555,6 +562,7 @@ def report_node(state: AgentState, ctx: RuntimeContext) -> dict:
         f"研究摘要：{state.research_context or '(无)'}",
         f"策略配置：{json.dumps(state.strategy_config, ensure_ascii=False)}",
         f"回测指标：{metrics_text}",
+        f"成本敏感度：{cost_text or '-'}",
         f"风险等级：{state.risk_report.level}",
         f"证据链：{state.backtest_result_ref or '-'} | {state.snapshot_id or '-'} | {', '.join(state.evidence_refs) or '-'}",
     ]
