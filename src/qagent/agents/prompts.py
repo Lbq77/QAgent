@@ -13,8 +13,8 @@ _PLANNER_JSON_SPEC = (
     '- market (str): 市场，美股为 "US"\n'
     '- universe (list[str]): 只填用户明确说出的具体股票代码，如 ["AAPL","MSFT"]；用户说的是指数（标普500/纳指等）或没给代码就留 []\n'
     '- date_range (object): {"start":"YYYY-MM-DD","end":"YYYY-MM-DD"}，用户没给具体日期就留 {}\n'
-    "- factor (str): 用户要用的因子，只能从以下选一个：momentum_5d, momentum_20d, momentum_60d, volatility_20d, avg_volume_20d, market_cap。用户只说「动量」没指定窗口就用 momentum_20d，说「市值」就用 market_cap，完全没提因子也默认 momentum_20d，不要放进 missing_params\n"
-    '- factor_direction (str): 排序方向 "asc" 或 "desc"。市值小排前面用 market_cap+asc；动量高排前面用 momentum_*+desc；波动率低排前面用 volatility_20d+asc\n'
+    "- factor (str): 用户要用的因子，只能从以下选一个：momentum_5d, momentum_20d, momentum_60d, volatility_20d, avg_volume_20d。用户只说「动量」没指定窗口就用 momentum_20d；完全没提因子也默认 momentum_20d，不要放进 missing_params\n"
+    '- factor_direction (str): 排序方向 "asc" 或 "desc"。动量高排前面用 momentum_*+desc；波动率低排前面用 volatility_20d+asc\n'
     '- top_n (int): 用户要选出的股票数量，如「市值最小的10只」→ 10；没说就默认 3\n'
     "示例："
     '{"goal":"研究 AAPL 的 20 日动量并回测","steps":["research","quant","risk_audit","fact_check","report"],'

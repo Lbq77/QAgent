@@ -47,7 +47,7 @@ def _build_question(missing: list[str], index: str = "", factor: str = "") -> st
     if "factor" in missing and factor:
         return (
             f"因子「{factor}」暂不支持，可选：momentum_5d、momentum_20d、momentum_60d、"
-            "volatility_20d、avg_volume_20d、market_cap"
+            "volatility_20d、avg_volume_20d"
         )
     labels = [_PARAM_LABELS.get(p, p) for p in missing]
     if "universe" in missing and index:

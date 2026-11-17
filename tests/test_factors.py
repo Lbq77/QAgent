@@ -9,12 +9,13 @@ from qagent.factors import (
 )
 
 
-def test_market_cap_default_asc():
-    assert resolve_factor("market_cap", None) == {"factor": "market_cap", "direction": "asc"}
-
-
-def test_market_cap_alias():
-    assert resolve_factor("小市值", None) == {"factor": "market_cap", "direction": "asc"}
+def test_market_cap_unsupported():
+    # 市值因子 PIT（时点）未对齐、存在未来函数，已从白名单移除：resolve 报错、文本检测命中
+    with pytest.raises(UnknownFactorError):
+        resolve_factor("market_cap", None)
+    with pytest.raises(UnknownFactorError):
+        resolve_factor("小市值", None)
+    assert detect_unsupported_factor("用小市值因子选股") == "市值因子"
 
 
 def test_momentum_default_desc():
@@ -38,7 +39,8 @@ def test_unknown_factor_raises():
 
 
 def test_respects_explicit_direction():
-    assert resolve_factor("market_cap", "desc") == {"factor": "market_cap", "direction": "desc"}
+    # 显式方向优先于默认方向（波动率默认 asc，显式 desc 应被尊重）
+    assert resolve_factor("volatility_20d", "desc") == {"factor": "volatility_20d", "direction": "desc"}
 
 
 def test_detect_unsupported_factor():
@@ -49,7 +51,6 @@ def test_detect_unsupported_factor():
 
 def test_detect_unsupported_factor_no_match():
     assert detect_unsupported_factor("用 20 日动量回测") == ""
-    assert detect_unsupported_factor("用小市值因子") == ""
 
 
 def test_factor_value_momentum():

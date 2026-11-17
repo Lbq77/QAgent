@@ -4,7 +4,8 @@ LLM 只输出因子名 + 方向，程序在这里做白名单校验与方向兜�
 - 未指定因子（空）→ 默认 momentum_20d/desc；
 - 显式指定但不在白名单 → 抛 UnknownFactorError（上游阻塞任务，绝不静默替换）。
 
-`market_cap` 是小幅扩展（原文只列价量因子，用户要求支持市值因子）。
+`market_cap`（市值）因子暂不支持：市值取的是「当前快照」，未做 PIT（时点）对齐，
+存在未来函数，故从白名单移除、检测到即阻塞（等接入历史市值数据源再放开）。
 """
 from __future__ import annotations
 
@@ -22,7 +23,6 @@ FACTOR_REGISTRY: dict[str, dict[str, str]] = {
     "momentum_60d": {"direction": "desc"},
     "volatility_20d": {"direction": "asc"},   # 波动率越低越靠前
     "avg_volume_20d": {"direction": "desc"},  # 均量越大越靠前（流动性）
-    "market_cap": {"direction": "asc"},       # 市值越小越靠前
 }
 
 # 常见口语 / 非规范表达 -> 规范名（可逐步补充）
@@ -86,6 +86,11 @@ UNSUPPORTED_FACTOR_HINTS: list[tuple[str, str]] = [
     ("股息", "股息因子"),
     ("分红", "分红因子"),
     ("基本面", "基本面因子"),
+    # 市值因子：PIT（时点）未对齐，存在未来函数，暂不支持
+    ("小市值", "市值因子"),
+    ("市值", "市值因子"),
+    ("market cap", "市值因子"),
+    ("marketcap", "市值因子"),
 ]
 
 

@@ -64,7 +64,7 @@
   },
   {
     "id": "index_universe_blocks",
-    "query": "在标普500中使用小市值因子回测",
+    "query": "在标普500中使用动量因子回测",
     "llm_raw": {"goal": "g", "needs_research": true, "needs_backtest": true, "needs_risk_audit": true, "missing_params": [], "market": "US", "universe": [], "date_range": {"start": "2023-01-01", "end": "2026-01-01"}},
     "expect": {
       "status": "blocked",
@@ -74,7 +74,7 @@
   },
   {
     "id": "top_n_extracted",
-    "query": "选出市值最小的10只",
+    "query": "选出动量最强的10只",
     "llm_raw": {"goal": "g", "needs_research": true, "needs_backtest": true, "needs_risk_audit": true, "missing_params": [], "market": "US", "universe": ["AAPL", "MSFT"], "date_range": {"start": "2023-01-01", "end": "2026-01-01"}, "top_n": 10},
     "expect": {
       "status": "succeeded",

@@ -93,13 +93,13 @@ def test_factor_propagation_to_strategy():
             "market": "US",
             "universe": ["AAPL"],
             "date_range": {"start": "2024-01-01", "end": "2024-12-31"},
-            "factor": "market_cap",
+            "factor": "volatility_20d",
             "factor_direction": "asc",
         }
     )
-    state = _runtime(raw).run("用小市值因子选股并回测")
+    state = _runtime(raw).run("用波动率因子选股并回测")
     assert state.awaiting_confirmation is True  # 停在 human_confirm
-    assert state.strategy_config["ranking"] == {"factor": "market_cap", "direction": "asc"}
+    assert state.strategy_config["ranking"] == {"factor": "volatility_20d", "direction": "asc"}
 
 
 def test_index_universe_blocks_not_substituted():
@@ -116,7 +116,7 @@ def test_index_universe_blocks_not_substituted():
             "date_range": {"start": "2023-01-01", "end": "2026-01-01"},
         }
     )
-    state = _runtime(raw).run("在标普500中使用小市值因子回测")
+    state = _runtime(raw).run("在标普500中使用动量因子回测")
     assert state.status.value == "blocked"
     assert "标普500" in state.pending_question
     assert state.strategy_config == {}  # 没走到 quant，未静默替换
@@ -135,7 +135,7 @@ def test_empty_universe_blocks():
             "date_range": {"start": "2023-01-01", "end": "2026-01-01"},
         }
     )
-    state = _runtime(raw).run("回测小市值因子")  # 无代码也无指数
+    state = _runtime(raw).run("回测动量因子")  # 无代码也无指数
     assert state.status.value == "blocked"
     assert "股票池" in state.pending_question
 
@@ -154,7 +154,7 @@ def test_top_n_extracted():
             "top_n": 10,
         }
     )
-    state = _runtime(raw).run("选出市值最小的10只")
+    state = _runtime(raw).run("选出动量最强的10只")
     assert state.awaiting_confirmation is True  # 停在 human_confirm
     assert state.strategy_config["top_n"] == 10
 
