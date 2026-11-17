@@ -180,15 +180,21 @@ def _plan_research_tools(ctx: RuntimeContext, state: AgentState) -> list[str]:
 
 
 def _build_research_summary(state: AgentState, market_data, knowledge, profile) -> str:
-    parts: list[str] = []
+    """汇总研究结果；知识库答案与公司概况详情一并保留，让报告能看到完整内容。"""
+    lines: list[str] = []
     if market_data is not None:
-        parts.append(f"行情 {len(market_data.records)} 条")
+        src = f"（来源 {market_data.source}）" if market_data.source else ""
+        lines.append(f"行情：{len(market_data.records)} 条{src}")
     if knowledge is not None:
-        parts.append(f"知识库检索 {len(knowledge.matches)} 条匹配")
+        answer = (knowledge.answer or "").strip()
+        if len(answer) > 500:
+            answer = answer[:500] + "…"
+        lines.append(f"知识库检索：{answer}")
     if profile is not None:
-        parts.append(f"公司概况 {profile.symbol} {profile.name}".strip())
-    body = "、".join(parts) if parts else "无检索结果"
-    return f"研究 {state.user_query[:40]}：{body}"
+        desc = " / ".join(x for x in (profile.name, profile.sector, profile.exchange) if x)
+        lines.append(f"公司概况：{profile.symbol} {desc}".strip())
+    body = "\n".join(lines) if lines else "无检索结果"
+    return f"研究 {state.user_query[:40]}：\n{body}"
 
 
 def research_node(state: AgentState, ctx: RuntimeContext) -> dict:
