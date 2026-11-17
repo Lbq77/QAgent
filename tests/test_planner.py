@@ -56,3 +56,17 @@ def test_build_task_plan_falls_back_on_garbage():
     assert err is not None
     assert plan.steps  # 有默认步骤
     assert constraints.universe == []
+
+
+def test_build_task_plan_ignores_llm_junk_missing_params():
+    """LLM 编造 research_topic/goal 这类不存在的缺参字段 → 一律过滤，不误拦。"""
+    class _Ctx:
+        def __init__(self):
+            self.llm = StubLLM(
+                raw='{"goal":"g","needs_research":true,"needs_backtest":false,'
+                    '"needs_risk_audit":false,"missing_params":["research_topic","goal","factor"]}'
+            )
+
+    plan, constraints, err = build_task_plan(_Ctx(), "查一下资料")
+    assert err is None
+    assert plan.missing_params == []  # LLM 编的字段全被过滤，只认代码判定的 date_range/universe/factor

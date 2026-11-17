@@ -137,22 +137,13 @@ def build_task_plan(
     # 3) 指数识别（确定性关键字）
     index = detect_index(user_query)
 
-    # 4) 缺参补充：回测必需股票池 + 时间范围；因子只阻塞「未知因子」，不阻塞「未指定」
-    missing = list(out.missing_params)
+    # 4) 缺参只由代码判定，不采信 LLM 塞进 missing_params 的值——
+    #    LLM 会编造 research_topic / research_goal / goal 这类不存在的字段，直接过滤掉。
+    missing: list[str] = []
     if out.needs_backtest and not out.date_range:
-        if "date_range" not in missing:
-            missing.append("date_range")
-    else:
-        missing = [p for p in missing if p != "date_range"]
-
+        missing.append("date_range")
     if out.needs_backtest and not out.universe:
-        if "universe" not in missing:
-            missing.append("universe")
-    else:
-        missing = [p for p in missing if p != "universe"]
-
-    # LLM 自己往 missing_params 塞的 factor 一律去掉；只有代码判定的「不支持的因子」才阻塞
-    missing = [p for p in missing if p != "factor"]
+        missing.append("universe")
     if unsupported:
         missing.append("factor")
     out.missing_params = missing
