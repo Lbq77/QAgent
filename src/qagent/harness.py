@@ -71,15 +71,18 @@ class Harness:
         raise last  # type: ignore[misc]  # pragma: no cover — 循环内必 raise
 
     def _run_with_timeout(self, fn: Callable[..., Any], args: tuple, kwargs: dict) -> Any:
-        with ThreadPoolExecutor(max_workers=1) as ex:
-            future = ex.submit(fn, *args, **kwargs)
-            try:
-                return future.result(timeout=self.timeout_seconds)
-            except TimeoutError:
-                future.cancel()
-                raise HarnessTimeoutError(
-                    f"tool call timed out after {self.timeout_seconds}s"
-                ) from None
+        # 不用 with：with 退出时会 shutdown(wait=True)，等于等慢任务跑完，超时形同虚设。
+        ex = ThreadPoolExecutor(max_workers=1)
+        future = ex.submit(fn, *args, **kwargs)
+        try:
+            return future.result(timeout=self.timeout_seconds)
+        except TimeoutError:
+            # future.cancel() 无法中止已运行的任务，后台线程仍会跑完；这里只保证调用方不再等。
+            raise HarnessTimeoutError(
+                f"tool call timed out after {self.timeout_seconds}s"
+            ) from None
+        finally:
+            ex.shutdown(wait=False, cancel_futures=True)  # 关闭线程池，但不等待正在执行的任务
 
 
 def build_harness(settings) -> Harness | None:

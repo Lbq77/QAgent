@@ -25,6 +25,21 @@ def test_timeout_raises():
         h.call(slow)
 
 
+def test_timeout_returns_early():
+    """超时后调用方必须提前返回，而不是等慢任务跑完（回归 with ThreadPoolExecutor 阻塞退出）。"""
+    h = Harness(timeout_seconds=0.5, retries=0)
+
+    def slow() -> str:
+        time.sleep(3)
+        return "late"
+
+    start = time.monotonic()
+    with pytest.raises(HarnessTimeoutError):
+        h.call(slow)
+    elapsed = time.monotonic() - start
+    assert elapsed < 1.0  # 3 秒任务，调用方必须在 1 秒内返回
+
+
 def test_retry_then_success():
     h = Harness(timeout_seconds=0.05, retries=1, retry_backoff=0.01)
     calls: dict[str, int] = {"n": 0}
