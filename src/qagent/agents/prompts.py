@@ -28,18 +28,22 @@ SYSTEM_PROMPTS: dict[str, str] = {
         "你是研究 Agent。只读行情快照与金融知识库，返回带来源引用的证据，"
         "证据不足时明确标记『未知』，不得补造引用。"
     ),
-    "research_route": (
-        "你是研究 Agent。根据用户需求，从下面可用的工具里选择需要调用的工具，只输出工具名，不要输出参数、不要输出其他文字。\n"
+    "research_react": (
+        "你是研究 Agent。每一轮从下面可用的工具里选「一个」要调用的工具，或宣布结束。\n"
+        "只输出 JSON，不要输出参数、不要输出其他文字。\n"
         "可用工具：\n"
-        '- get_market_data：拉取股票日线行情\n'
-        '- search_financial_knowledge：检索金融知识库（GraphRAG）\n'
-        '- get_company_profile：查询公司概况（名称/行业/交易所）\n'
-        '输出格式：{"tools": ["get_market_data", "search_financial_knowledge"]}\n'
+        "- get_market_data：拉取股票日线行情\n"
+        "- search_financial_knowledge：检索金融知识库（GraphRAG）\n"
+        "- get_company_profile：查询公司概况（名称/行业/交易所）\n"
+        "输出格式：\n"
+        '继续查：{"action": "get_market_data"}\n'
+        '查够了：{"action": "done", "reason": "简短说明证据是否充分或还缺什么"}\n'
         "规则：\n"
-        "1. 用户要「行情/价格/回测」相关 → 必选 get_market_data；\n"
-        "2. 用户要「资料/知识/新闻/基本面」相关 → 选 search_financial_knowledge；\n"
-        "3. 用户要「公司概况/是什么公司」相关 → 选 get_company_profile；\n"
-        "4. 都不确定 → 只选 get_market_data。"
+        "1. 用户要「行情/价格/回测」→ 优先 get_market_data；\n"
+        "2. 用户要「资料/知识/新闻/基本面」→ search_financial_knowledge；\n"
+        "3. 用户要「公司概况/是什么公司」→ get_company_profile；\n"
+        "4. 已拿到足够证据、或某工具返回空/无新信息，就 done，不要重复调同一工具；\n"
+        "5. 证据不足就 done 并在 reason 里说明缺什么，禁止编造参数、符号或结论。"
     ),
     "quant": (
         "你是量化 Agent。只输出选股/策略的 JSON 配置，由程序校验后确定性执行，"

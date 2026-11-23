@@ -153,30 +153,136 @@ def _extract_json(text: str) -> str:
     return text[start : end + 1]
 
 
-def _plan_research_tools(ctx: RuntimeContext, state: AgentState) -> list[str]:
-    """工具路由：让 LLM 只决定「调用哪几个研究工具」，参数一律由程序填充。
+_RESEARCH_TOOLS = ("get_market_data", "search_financial_knowledge", "get_company_profile")
 
-    注意：LLM 只输出工具名，不产出参数——symbols/日期/query 全部取自 task_constraints，
-    绝不信任 LLM 编造的符号或日期。stub / 解析失败 / 空结果 → 回退「只拉行情」。
+
+def _research_tool_args(state: AgentState, action: str) -> dict[str, Any]:
+    """按动作名从 task_constraints 填充参数——绝不信任 LLM 编造的符号/日期。"""
+    c = state.task_constraints
+    if action == "get_market_data":
+        return {
+            "symbols": c.universe,
+            "start": c.date_range.get("start", ""),
+            "end": c.date_range.get("end", ""),
+            "market": c.market,
+        }
+    if action == "search_financial_knowledge":
+        return {"query": state.user_query, "mode": "global"}
+    if action == "get_company_profile":
+        return {"symbol": (c.universe or [""])[0]}
+    return {}
+
+
+def _research_result_empty(action: str, out: Any) -> bool:
+    """判断一次工具调用是否「没有拿到可用的新信息」。"""
+    if action == "get_market_data":
+        return not out.records
+    if action == "search_financial_knowledge":
+        return not (out.answer or "").strip()
+    if action == "get_company_profile":
+        return not (out.name or out.sector or out.exchange)
+    return False
+
+
+def _research_result_summary(action: str, out: Any) -> str:
+    """把一次工具结果压成「决策级」摘要（足够让模型判断要不要继续查），完整结果外置。"""
+    if action == "get_market_data":
+        if not out.records:
+            return "get_market_data：无行情数据"
+        return f"get_market_data：{len(out.records)} 条行情，来源 {out.source}，快照 {out.snapshot_id}"
+    if action == "search_financial_knowledge":
+        ans = (out.answer or "").strip()
+        return f"search_financial_knowledge：{ans[:200]}" if ans else "search_financial_knowledge：知识库无结果"
+    if action == "get_company_profile":
+        desc = " / ".join(x for x in (out.name, out.sector, out.exchange) if x)
+        return f"get_company_profile：{out.symbol} {desc}" if desc else f"get_company_profile：{out.symbol} 无概况数据"
+    return f"{action}：{_summarize(out)}"
+
+
+def _research_react(
+    ctx: RuntimeContext, state: AgentState
+) -> tuple[list[ToolCallRecord], Any, Any, Any, list[str], int]:
+    """Research 节点内部的小型 ReAct 循环。
+
+    - 模型每轮只选一个「无参动作」（工具名或 done），参数由代码从 task_constraints 填；
+    - 工具结果只把决策级摘要放进局部对话（不进 AgentState.messages），完整结果外置；
+    - 边界：最多 `max_research_rounds` 轮、同一工具不重复调、空结果/解析失败兜底收尾。
     """
-    default = ["get_market_data"]
+    # stub / 无决策能力：退化为「只拉行情」一次（与旧行为一致，保证 StubLLM 路径不变）
     if getattr(ctx.llm, "is_stub", False):
-        return default
+        out, tc = _call_tool(
+            ctx, "research", "get_market_data", _research_tool_args(state, "get_market_data")
+        )
+        unknowns = ["get_market_data 无结果"] if _research_result_empty("get_market_data", out) else []
+        return [tc], out, None, None, unknowns, 1
+
+    max_rounds = getattr(ctx.settings, "max_research_rounds", 5)
     constraints = {
         "universe": state.task_constraints.universe,
         "date_range": state.task_constraints.date_range,
         "market": state.task_constraints.market,
     }
-    user = json.dumps({"query": state.user_query, "constraints": constraints}, ensure_ascii=False)
-    try:
-        raw = ctx.llm.invoke(SYSTEM_PROMPTS["research_route"], user)
-        data = json.loads(_extract_json(raw))
-        tools = data.get("tools") or []
-    except Exception:
-        return default
-    allowed = {"get_market_data", "search_financial_knowledge", "get_company_profile"}
-    names = [t for t in tools if isinstance(t, str) and t in allowed]
-    return names or default
+    observations: list[str] = []
+    called: set[str] = set()
+    unknowns: list[str] = []
+    tool_calls: list[ToolCallRecord] = []
+    market_data = knowledge = profile = None
+
+    rounds = 0
+    done = False
+    while rounds < max_rounds and not done:
+        rounds += 1
+        user = json.dumps(
+            {"query": state.user_query, "constraints": constraints, "observations": observations},
+            ensure_ascii=False,
+        )
+        try:
+            raw = ctx.llm.invoke(SYSTEM_PROMPTS["research_react"], user)
+            data = json.loads(_extract_json(raw))
+        except Exception:
+            # 解析失败：什么都没查到就兜底拉一次行情，否则直接收尾
+            if not tool_calls:
+                out, tc = _call_tool(
+                    ctx, "research", "get_market_data", _research_tool_args(state, "get_market_data")
+                )
+                tool_calls.append(tc)
+                market_data = out
+                if _research_result_empty("get_market_data", out):
+                    unknowns.append("get_market_data 无结果")
+            done = True
+            continue
+
+        action = (data or {}).get("action")
+        if action == "done":
+            if (data or {}).get("reason"):
+                unknowns.append(str(data["reason"]))
+            done = True
+            continue
+        if action not in _RESEARCH_TOOLS:
+            done = True  # 非法动作：结束，避免瞎跑
+            continue
+        if action in called:
+            done = True  # 重复调用同一工具：无进展，结束
+            continue
+
+        called.add(action)
+        out, tc = _call_tool(ctx, "research", action, _research_tool_args(state, action))
+        tool_calls.append(tc)
+        if action == "get_market_data":
+            market_data = out
+        elif action == "search_financial_knowledge":
+            knowledge = out
+        elif action == "get_company_profile":
+            profile = out
+
+        if _research_result_empty(action, out):
+            unknowns.append(f"{action} 无结果")
+        observations.append(_research_result_summary(action, out))
+
+    if not done and rounds >= max_rounds:
+        unknowns.append("达到研究轮数上限，证据可能不足")
+
+    return tool_calls, market_data, knowledge, profile, unknowns, rounds
 
 
 def _build_research_summary(state: AgentState, market_data, knowledge, profile) -> str:
@@ -198,34 +304,12 @@ def _build_research_summary(state: AgentState, market_data, knowledge, profile) 
 
 
 def research_node(state: AgentState, ctx: RuntimeContext) -> dict:
-    # 工具路由：LLM 只选工具，参数全部由 task_constraints 填充（不信任 LLM 编造）。
-    names = _plan_research_tools(ctx, state)
-    tool_calls: list[ToolCallRecord] = []
-    market_data = knowledge = profile = None
-
-    for name in names:
-        if name == "get_market_data":
-            args = {
-                "symbols": state.task_constraints.universe,
-                "start": state.task_constraints.date_range.get("start", ""),
-                "end": state.task_constraints.date_range.get("end", ""),
-                "market": state.task_constraints.market,
-            }
-        elif name == "search_financial_knowledge":
-            args = {"query": state.user_query, "mode": "global"}
-        elif name == "get_company_profile":
-            args = {"symbol": (state.task_constraints.universe or [""])[0]}
-
-        out, tc = _call_tool(ctx, "research", name, args)
-        tool_calls.append(tc)
-        if name == "get_market_data":
-            market_data = out
-        elif name == "search_financial_knowledge":
-            knowledge = out
-        elif name == "get_company_profile":
-            profile = out
+    tool_calls, market_data, knowledge, profile, unknowns, rounds = _research_react(ctx, state)
 
     summary = _build_research_summary(state, market_data, knowledge, profile)
+    if unknowns:
+        summary += "\n未查到/证据不足：" + "；".join(unknowns)
+
     evidence: list[str] = []
     if market_data is not None and market_data.source:
         evidence.append(market_data.source)
@@ -233,7 +317,12 @@ def research_node(state: AgentState, ctx: RuntimeContext) -> dict:
         evidence.extend(m.url for m in knowledge.matches if m.url)
     snapshot_id = market_data.snapshot_id if market_data is not None else ""
 
-    out = ResearchOutput(summary=summary, evidence_refs=evidence, snapshot_id=snapshot_id)
+    out = ResearchOutput(
+        summary=summary,
+        evidence_refs=evidence,
+        snapshot_id=snapshot_id,
+        unknowns=unknowns,
+    )
     return _finish(
         state,
         "research_node",
@@ -242,6 +331,7 @@ def research_node(state: AgentState, ctx: RuntimeContext) -> dict:
         research_context=out.summary,
         evidence_refs=out.evidence_refs,
         snapshot_id=out.snapshot_id,
+        _note=f"react: {rounds} 轮 / {len(tool_calls)} 次工具调用",
     )
 
 

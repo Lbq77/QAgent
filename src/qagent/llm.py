@@ -85,6 +85,11 @@ class OpenAICompatibleLLM(LLMProvider):
             temperature=temperature,
         )
         self.last_usage: dict = {}  # 最近一次调用的 token 用量（评测用）
+        # 累计用量（跨调用累加，供评测按任务统计 token 成本）
+        self.calls: int = 0
+        self.total_input_tokens: int = 0
+        self.total_output_tokens: int = 0
+        self.total_tokens: int = 0
 
     def invoke(self, system: str, user: str) -> str:
         from langchain_core.messages import HumanMessage, SystemMessage
@@ -94,6 +99,13 @@ class OpenAICompatibleLLM(LLMProvider):
         )
         usage = getattr(resp, "usage_metadata", None) or {}
         self.last_usage = dict(usage)
+        self.calls += 1
+        self.total_input_tokens += int(usage.get("input_tokens") or 0)
+        self.total_output_tokens += int(usage.get("output_tokens") or 0)
+        self.total_tokens += int(
+            usage.get("total_tokens")
+            or (usage.get("input_tokens") or 0) + (usage.get("output_tokens") or 0)
+        )
         return str(resp.content)
 
 

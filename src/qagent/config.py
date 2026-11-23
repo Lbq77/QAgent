@@ -46,6 +46,7 @@ class Settings(BaseSettings):
 
     # Harness 预算 / 超时 / 重试（落地）
     max_iterations: int = 10
+    max_research_rounds: int = 5  # research 节点内 ReAct 循环的上限轮数
     max_tool_calls: int = 30
     tool_timeout_seconds: float = 30.0
     tool_retries: int = 1
