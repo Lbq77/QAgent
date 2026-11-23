@@ -16,3 +16,5 @@ src/qagent/data/cache/
 *.sqlite-shm
 *.sqlite-journal
 Icon
+
+INTERVIEW.md
