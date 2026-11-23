@@ -145,3 +145,61 @@ def test_research_react_surfaces_done_reason():
     rt = _runtime(llm, MarketDataService([StubMarketDataProvider()]))
     s = rt.run(QUERY)
     assert "知识库与行情均未覆盖该标的" in s.research_context
+
+
+def test_research_news_refines_query_across_rounds(monkeypatch):
+    """search_news 查不到 → 换检索词再查：真正需要多轮的 ReAct 工具（5 轮上限因此有意义）。"""
+    from qagent.tools import research
+    from qagent.tools.schemas import NewsItem
+
+    class _FakeNews:
+        def __init__(self) -> None:
+            self.queries: list[str] = []
+
+        def search(self, query: str) -> list[NewsItem]:
+            self.queries.append(query)
+            if query == "bad":
+                return []  # 第一次检索词查不到 → 触发换词
+            return [NewsItem(title=f"利好：{query}", url="https://news.example/1", source="fake")]
+
+    fake = _FakeNews()
+    monkeypatch.setattr(research, "build_default_news_client", lambda: fake)
+    monkeypatch.setattr(research, "build_default_graphrag_client", lambda: None)
+
+    llm = _SeqLLM(
+        [
+            {"action": "search_news", "query": "bad"},
+            {"action": "search_news", "query": "good"},
+        ]
+    )
+    rt = _runtime(llm, MarketDataService([StubMarketDataProvider()]))
+    s = rt.run(QUERY)
+
+    assert fake.queries == ["bad", "good"]  # 换词再查
+    assert _research_tools(s) == ["search_news", "search_news"]
+    assert "新闻舆情" in s.research_context
+    assert "利好：good" in s.research_context
+
+
+def test_research_news_stops_on_repeat_query(monkeypatch):
+    """同一检索词重复 → 无进展，循环收尾，不会失控。"""
+    from qagent.tools import research
+    from qagent.tools.schemas import NewsItem
+
+    class _FakeNews:
+        def search(self, query: str) -> list[NewsItem]:
+            return [NewsItem(title=f"news:{query}", url="https://news.example/1", source="fake")]
+
+    monkeypatch.setattr(research, "build_default_news_client", lambda: _FakeNews())
+    monkeypatch.setattr(research, "build_default_graphrag_client", lambda: None)
+
+    llm = _SeqLLM(
+        [
+            {"action": "search_news", "query": "same"},
+            {"action": "search_news", "query": "same"},
+            {"action": "search_news", "query": "same"},
+        ]
+    )
+    rt = _runtime(llm, MarketDataService([StubMarketDataProvider()]))
+    s = rt.run(QUERY)
+    assert _research_tools(s) == ["search_news"]  # 只调了一次

@@ -90,3 +90,30 @@ def test_report_flags_hallucinated_number():
     # 错误的 LLM 总结被弃用，报告里的「分析师总结」已是确定性模板（不含 45.6% 的正文）
     summary_section = final.final_report.split("## 分析师总结与建议", 1)[1]
     assert "45.6%" not in summary_section
+
+
+def _verify_summary_claims_direct(summary: str, metrics: dict) -> list[str]:
+    from qagent.graph.nodes import _verify_summary_claims
+
+    mismatches, _ = _verify_summary_claims(summary, {"metrics": metrics})
+    return mismatches
+
+
+def test_verify_summary_ignores_confidence_level():
+    """95% 置信、VaR(95%) 是常量，不应被当成编造的指标数字。"""
+    metrics = {
+        "annual_return": 0.1,
+        "total_return": 0.1,
+        "max_drawdown": 0.05,
+        "var_95": 0.03,
+        "annual_volatility": 0.2,
+    }
+    summary = "年化收益 10%、最大回撤 5%、波动率 20%、VaR(95%) 为 3%，95% 置信水平下。"
+    assert _verify_summary_claims_direct(summary, metrics) == []
+
+
+def test_verify_summary_still_catches_fabrication():
+    """真正的编造数字（与所有真实指标都对不上）仍会被抓。"""
+    metrics = {"annual_return": 0.1, "max_drawdown": 0.05, "var_95": 0.03, "annual_volatility": 0.2}
+    summary = "年化收益率高达 88%！"
+    assert any("88.00%" in m for m in _verify_summary_claims_direct(summary, metrics))

@@ -72,7 +72,7 @@ def ensure_agent_allowed(agent: str, tool_name: str) -> None:
 def build_default_registry(
     market_data: "MarketDataService | None" = None, harness=None
 ) -> ToolRegistry:
-    """把 定义的全部 9 个工具注册进一个新 registry。
+    """把 定义的全部 10 个工具注册进一个新 registry。
 
     market_data：注入行情数据服务（测试/离线传 Stub 组成的 service）；
     为 None 时 GetMarketData 内部用默认真实源（Yahoo）。
@@ -85,6 +85,7 @@ def build_default_registry(
         research.GetMarketData(service=market_data),
         research.SearchFinancialKnowledge(),
         research.GetCompanyProfile(),
+        research.SearchNews(),
         quant.CalculateFactor(service=market_data),
         quant.ScreenStocks(service=market_data),
         quant.RunBacktest(service=market_data),

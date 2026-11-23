@@ -72,7 +72,7 @@ def test_fact_check_happy_path_no_mismatches():
     rt = _runtime()
     s = rt.run("研究 AAPL 在 2024-01-01 到 2024-12-31 的 20 日动量并回测")
     final = rt.confirm(s.task_id, {"action": "approve"})
-    # 3（确定性指标）+ 3（总结文本里的三个指标）= 6
-    assert final.fact_check_result.claims_checked == 6
+    # 5（确定性指标，含 VaR/年化波动率）+ 5（总结文本里的五个指标）= 10
+    assert final.fact_check_result.claims_checked == 10
     assert final.fact_check_result.mismatches == []
     assert "证据链" in final.final_report  # 报告带证据链

@@ -13,7 +13,7 @@ _PLANNER_JSON_SPEC = (
     '- market (str): 市场，美股为 "US"\n'
     '- universe (list[str]): 只填用户明确说出的具体股票代码，如 ["AAPL","MSFT"]；用户说的是指数（标普500/纳指等）或没给代码就留 []\n'
     '- date_range (object): {"start":"YYYY-MM-DD","end":"YYYY-MM-DD"}，用户没给具体日期就留 {}\n'
-    "- factor (str): 用户要用的因子，只能从以下选一个：momentum_5d, momentum_20d, momentum_60d, volatility_20d, avg_volume_20d。用户只说「动量」没指定窗口就用 momentum_20d；完全没提因子也默认 momentum_20d，不要放进 missing_params\n"
+    "- factor (str): 用户要用的因子，只能从以下选一个：momentum_5d, momentum_20d, momentum_60d, volatility_20d, avg_volume_20d, rsi_14, macd_signal。用户只说「动量」没指定窗口就用 momentum_20d；完全没提因子也默认 momentum_20d，不要放进 missing_params\n"
     '- factor_direction (str): 排序方向 "asc" 或 "desc"。动量高排前面用 momentum_*+desc；波动率低排前面用 volatility_20d+asc\n'
     '- top_n (int): 用户要选出的股票数量，如「市值最小的10只」→ 10；没说就默认 3\n'
     "示例："
@@ -30,20 +30,24 @@ SYSTEM_PROMPTS: dict[str, str] = {
     ),
     "research_react": (
         "你是研究 Agent。每一轮从下面可用的工具里选「一个」要调用的工具，或宣布结束。\n"
-        "只输出 JSON，不要输出参数、不要输出其他文字。\n"
+        "只输出 JSON，不要输出其他文字。\n"
         "可用工具：\n"
-        "- get_market_data：拉取股票日线行情\n"
-        "- search_financial_knowledge：检索金融知识库（GraphRAG）\n"
-        "- get_company_profile：查询公司概况（名称/行业/交易所）\n"
+        "- get_market_data：拉取股票日线行情（无需参数）\n"
+        "- search_financial_knowledge：检索金融知识库 GraphRAG（无需参数）\n"
+        "- get_company_profile：查询公司概况（无需参数）\n"
+        "- search_news：检索财经新闻/舆情（需要你给出检索词 query）\n"
         "输出格式：\n"
         '继续查：{"action": "get_market_data"}\n'
+        '搜新闻：{"action": "search_news", "query": "Apple 财报 情绪"}\n'
         '查够了：{"action": "done", "reason": "简短说明证据是否充分或还缺什么"}\n'
         "规则：\n"
         "1. 用户要「行情/价格/回测」→ 优先 get_market_data；\n"
-        "2. 用户要「资料/知识/新闻/基本面」→ search_financial_knowledge；\n"
-        "3. 用户要「公司概况/是什么公司」→ get_company_profile；\n"
-        "4. 已拿到足够证据、或某工具返回空/无新信息，就 done，不要重复调同一工具；\n"
-        "5. 证据不足就 done 并在 reason 里说明缺什么，禁止编造参数、符号或结论。"
+        "2. 用户要「资料/知识/基本面」→ search_financial_knowledge；\n"
+        "3. 用户要「新闻/舆情/情绪/公告」→ search_news，并自己写检索词；\n"
+        "4. 用户要「公司概况/是什么公司」→ get_company_profile；\n"
+        "5. search_news 查不到时可换一个检索词再查一次，但不要重复同一检索词；\n"
+        "6. 已拿到足够证据、或其他工具返回空/无新信息，就 done，不要重复调同一工具；\n"
+        "7. 证据不足就 done 并在 reason 里说明缺什么，禁止编造符号、日期或结论。"
     ),
     "quant": (
         "你是量化 Agent。只输出选股/策略的 JSON 配置，由程序校验后确定性执行，"
@@ -56,11 +60,12 @@ SYSTEM_PROMPTS: dict[str, str] = {
     "report": (
         "你是量化研究分析师。根据下面给出的回测结果写一份简短的中文研究总结与投资建议。\n"
         "严格要求：\n"
-        "1. 只能引用下面提供的数字，禁止编造任何收益率/回撤/夏普等数值；\n"
+        "1. 只能引用下面提供的数字，禁止编造任何收益率/回撤/夏普/波动率/VaR 等数值；\n"
         "2. 结构：先总结回测表现 → 再指出主要风险 → 最后给出下一步建议；\n"
         "3. 如果提供了 cost_scenarios（0x/default/2x 三档成本），请顺带指出策略对成本的敏感程度"
         "（成本翻倍后收益变化大不大）；\n"
-        "4. 结尾必须附一句：本内容仅供研究学习，不构成投资建议。\n"
-        "5. 控制在 200 字以内。"
+        "4. VaR 的置信水平固定为 95%，是常量不是指标，总结里不必重复写出「95%」这个数字；\n"
+        "5. 结尾必须附一句：本内容仅供研究学习，不构成投资建议。\n"
+        "6. 控制在 200 字以内。"
     ),
 }

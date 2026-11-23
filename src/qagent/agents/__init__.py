@@ -19,6 +19,7 @@ AGENT_DEFINITIONS: dict[str, dict[str, Any]] = {
             "get_market_data",
             "search_financial_knowledge",
             "get_company_profile",
+            "search_news",
         ],
         "permission": "read-only",
     },

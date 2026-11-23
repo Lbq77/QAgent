@@ -76,6 +76,22 @@ class GetCompanyProfileOutput(BaseModel):
     exchange: str = ""
 
 
+class SearchNewsInput(BaseModel):
+    query: str
+
+
+class NewsItem(BaseModel):
+    title: str
+    url: str = ""
+    snippet: str = ""
+    source: str = ""
+
+
+class SearchNewsOutput(BaseModel):
+    query: str = ""
+    items: list[NewsItem] = Field(default_factory=list)
+
+
 # ---- quant 工具 ----
 
 
@@ -125,6 +141,8 @@ class BacktestMetrics(BaseModel):
     total_return: float = 0.0
     max_drawdown: float = 0.0
     sharpe: float = 0.0
+    var_95: float = 0.0  # 95% 置信度单日 VaR（正数，损失幅度：0.03 = 单日最多亏 3%）
+    annual_volatility: float = 0.0  # 年化波动率（小数：0.25 = 25%）
 
 
 class RunBacktestOutput(BaseModel):

@@ -13,7 +13,9 @@ from ..data import (
     GraphRAGClient,
     MarketDataError,
     MarketDataService,
+    NewsProvider,
     build_default_graphrag_client,
+    build_default_news_client,
     build_default_service,
 )
 from ..data.yahoo import fetch_company_profile
@@ -24,8 +26,11 @@ from .schemas import (
     GetMarketDataInput,
     GetMarketDataOutput,
     KnowledgeItem,
+    NewsItem,
     SearchFinancialKnowledgeInput,
     SearchFinancialKnowledgeOutput,
+    SearchNewsInput,
+    SearchNewsOutput,
 )
 
 
@@ -126,3 +131,28 @@ class GetCompanyProfile(Tool):
             sector=data.get("sector", ""),
             exchange=data.get("exchange", ""),
         )
+
+
+class SearchNews(Tool):
+    name = "search_news"
+    description = "检索财经新闻/舆情（默认桩；配 Tavily API key 接真实新闻源）。"
+    input_model = SearchNewsInput
+    output_model = SearchNewsOutput
+    permission = "read-only"
+
+    def __init__(self, client: NewsProvider | None = None) -> None:
+        # client 显式传入用于测试注入；None 时按配置构建（未配 key 则为 None → 桩）
+        self._client = client or build_default_news_client()
+
+    def execute(self, args: SearchNewsInput) -> SearchNewsOutput:
+        if self._client is None:
+            # 桩：如实标记，不把「没接入」伪装成真实新闻
+            return SearchNewsOutput(
+                query=args.query,
+                items=[NewsItem(title=f"[stub] 未接入新闻源：{args.query}", url="stub://news/1", source="stub")],
+            )
+        try:
+            items = self._client.search(args.query)
+        except Exception:  # noqa: BLE001 — 新闻源异常降级为空结果，由 research 标记「无结果」
+            items = []
+        return SearchNewsOutput(query=args.query, items=items)

@@ -13,6 +13,13 @@ from .base import (
     build_default_service,
 )
 from .graphrag import GraphRAGClient, GraphRAGError, build_default_graphrag_client
+from .news import (
+    NewsError,
+    NewsProvider,
+    StubNewsProvider,
+    TavilyNewsProvider,
+    build_default_news_client,
+)
 
 __all__ = [
     "MarketDataError",
@@ -24,4 +31,9 @@ __all__ = [
     "GraphRAGClient",
     "GraphRAGError",
     "build_default_graphrag_client",
+    "NewsError",
+    "NewsProvider",
+    "StubNewsProvider",
+    "TavilyNewsProvider",
+    "build_default_news_client",
 ]

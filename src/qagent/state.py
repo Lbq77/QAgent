@@ -65,9 +65,6 @@ class TaskConstraints(BaseModel):
     extra: dict[str, Any] = Field(default_factory=dict)
 
 
-# ---- 各节点结构化输出（Agent工程版 D1–2「结构化输出」）----
-# 接入真实工具后，节点内部仍以这些模型为返回契约。
-
 
 class ResearchOutput(BaseModel):
     """Research 节点产物：摘要 + 证据引用 + 快照 ID。"""

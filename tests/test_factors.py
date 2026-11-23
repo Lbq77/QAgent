@@ -75,3 +75,31 @@ def test_factor_value_avg_volume():
 
 def test_factor_value_unknown_returns_none():
     assert factor_value("bogus", [100, 101]) is None
+
+
+def test_resolve_rsi_and_macd():
+    assert resolve_factor("rsi_14", None) == {"factor": "rsi_14", "direction": "desc"}
+    assert resolve_factor("macd_signal", None) == {"factor": "macd_signal", "direction": "desc"}
+
+
+def test_resolve_rsi_macd_aliases():
+    assert resolve_factor("RSI", None)["factor"] == "rsi_14"
+    assert resolve_factor("macd", None)["factor"] == "macd_signal"
+
+
+def test_factor_value_rsi_range_and_guards():
+    # 持续上涨 → RSI=100；持续下跌 → RSI=0
+    up = [100 + i for i in range(20)]
+    down = [100 - i for i in range(20)]
+    assert factor_value("rsi_14", up) == pytest.approx(100.0)
+    assert factor_value("rsi_14", down) == pytest.approx(0.0)
+    # 数据不足返回 None
+    assert factor_value("rsi_14", [100, 101]) is None
+
+
+def test_factor_value_macd_signal_requires_enough_data():
+    # <26 根 K 线 → None（EMA26 尚未有意义）
+    assert factor_value("macd_signal", [100 + i for i in range(25)]) is None
+    # 持续上涨 → MACD 线 > 0，信号线也为正
+    up = [100 * (1.01**i) for i in range(40)]
+    assert factor_value("macd_signal", up) > 0

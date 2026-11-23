@@ -86,6 +86,17 @@ def test_backtest_sharpe_positive():
     assert m.sharpe > 0
 
 
+def test_backtest_var_and_volatility():
+    # 恒定 +3% 日收益（含 4 位小数舍入噪声）→ 无损失，VaR=0；波动率≈0
+    m = run_backtest_metrics({"X": _series(100, 11, 0.03)}, cost=0.0)
+    assert m.var_95 == pytest.approx(0.0, abs=1e-6)
+    assert m.annual_volatility == pytest.approx(0.0, abs=1e-4)
+    # 有涨有跌 → 年化波动率 > 0，VaR 为正数（损失幅度）
+    m2 = run_backtest_metrics({"X": [100, 103, 101, 105, 104, 108]}, cost=0.0)
+    assert m2.annual_volatility > 0
+    assert m2.var_95 >= 0
+
+
 def test_backtest_drawdown():
     m = run_backtest_metrics({"X": [100, 110, 99, 100]}, cost=0.0)
     assert m.max_drawdown == pytest.approx(0.1, abs=0.01)

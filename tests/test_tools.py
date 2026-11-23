@@ -22,7 +22,7 @@ from qagent.tools.research import GetCompanyProfile, GetMarketData
 from qagent.tools.schemas import ScreenStocksInput, ScreenStocksOutput, StrategyConfig
 
 
-def test_registry_registers_all_nine_tools():
+def test_registry_registers_all_ten_tools():
     reg = build_default_registry()
     assert reg.names() == [
         "audit_strategy",
@@ -33,6 +33,7 @@ def test_registry_registers_all_nine_tools():
         "run_backtest",
         "screen_stocks",
         "search_financial_knowledge",
+        "search_news",
         "validate_report_claims",
     ]
     assert "get_market_data" in reg
@@ -139,7 +140,7 @@ def test_run_backtest_rejects_invalid_config():
 
 def test_context_has_default_registry():
     ctx = RuntimeContext(settings=Settings(model_provider="stub"), llm=StubLLM())
-    assert len(ctx.tool_registry.names()) == 9
+    assert len(ctx.tool_registry.names()) == 10
 
 
 def test_research_node_uses_tool_registry():

@@ -47,7 +47,7 @@ def _build_question(missing: list[str], index: str = "", factor: str = "") -> st
     if "factor" in missing and factor:
         return (
             f"因子「{factor}」暂不支持，可选：momentum_5d、momentum_20d、momentum_60d、"
-            "volatility_20d、avg_volume_20d"
+            "volatility_20d、avg_volume_20d、rsi_14、macd_signal"
         )
     labels = [_PARAM_LABELS.get(p, p) for p in missing]
     if "universe" in missing and index:
@@ -153,7 +153,12 @@ def _extract_json(text: str) -> str:
     return text[start : end + 1]
 
 
-_RESEARCH_TOOLS = ("get_market_data", "search_financial_knowledge", "get_company_profile")
+_RESEARCH_TOOLS = (
+    "get_market_data",
+    "search_financial_knowledge",
+    "get_company_profile",
+    "search_news",
+)
 
 
 def _research_tool_args(state: AgentState, action: str) -> dict[str, Any]:
@@ -181,6 +186,8 @@ def _research_result_empty(action: str, out: Any) -> bool:
         return not (out.answer or "").strip()
     if action == "get_company_profile":
         return not (out.name or out.sector or out.exchange)
+    if action == "search_news":
+        return not out.items
     return False
 
 
@@ -196,17 +203,25 @@ def _research_result_summary(action: str, out: Any) -> str:
     if action == "get_company_profile":
         desc = " / ".join(x for x in (out.name, out.sector, out.exchange) if x)
         return f"get_company_profile：{out.symbol} {desc}" if desc else f"get_company_profile：{out.symbol} 无概况数据"
+    if action == "search_news":
+        if not out.items:
+            return "search_news：无新闻结果"
+        titles = "；".join((it.title or "")[:60] for it in out.items[:3])
+        return f"search_news：{len(out.items)} 条新闻：{titles}"
     return f"{action}：{_summarize(out)}"
 
 
 def _research_react(
     ctx: RuntimeContext, state: AgentState
-) -> tuple[list[ToolCallRecord], Any, Any, Any, list[str], int]:
+) -> tuple[list[ToolCallRecord], Any, Any, Any, list[Any], list[str], int]:
     """Research 节点内部的小型 ReAct 循环。
 
-    - 模型每轮只选一个「无参动作」（工具名或 done），参数由代码从 task_constraints 填；
+    - 除 search_news 外，模型每轮只选「无参动作」（工具名或 done），参数由代码从
+      task_constraints 填；search_news 的检索词由模型自己写（这是唯一允许模型给
+      参数的只读工具，检索词是自由文本、不涉及 symbols/日期/市场）；
     - 工具结果只把决策级摘要放进局部对话（不进 AgentState.messages），完整结果外置；
-    - 边界：最多 `max_research_rounds` 轮、同一工具不重复调、空结果/解析失败兜底收尾。
+    - 边界：最多 `max_research_rounds` 轮、同一工具不重复调、search_news 可换词多轮
+      但同一检索词不重复、空结果/解析失败兜底收尾。
     """
     # stub / 无决策能力：退化为「只拉行情」一次（与旧行为一致，保证 StubLLM 路径不变）
     if getattr(ctx.llm, "is_stub", False):
@@ -214,7 +229,7 @@ def _research_react(
             ctx, "research", "get_market_data", _research_tool_args(state, "get_market_data")
         )
         unknowns = ["get_market_data 无结果"] if _research_result_empty("get_market_data", out) else []
-        return [tc], out, None, None, unknowns, 1
+        return [tc], out, None, None, [], unknowns, 1
 
     max_rounds = getattr(ctx.settings, "max_research_rounds", 5)
     constraints = {
@@ -224,9 +239,11 @@ def _research_react(
     }
     observations: list[str] = []
     called: set[str] = set()
+    news_queries: set[str] = set()
     unknowns: list[str] = []
     tool_calls: list[ToolCallRecord] = []
     market_data = knowledge = profile = None
+    news: list[Any] = []
 
     rounds = 0
     done = False
@@ -261,12 +278,27 @@ def _research_react(
         if action not in _RESEARCH_TOOLS:
             done = True  # 非法动作：结束，避免瞎跑
             continue
-        if action in called:
-            done = True  # 重复调用同一工具：无进展，结束
-            continue
 
-        called.add(action)
-        out, tc = _call_tool(ctx, "research", action, _research_tool_args(state, action))
+        if action == "search_news":
+            # 唯一让模型给参数的只读工具：检索词来自模型，可换词多轮（5 轮上限因此有意义）
+            query = str((data or {}).get("query") or "").strip()
+            if not query:
+                unknowns.append("search_news 未提供检索词")
+                done = True
+                continue
+            if query in news_queries:
+                done = True  # 重复检索词：无进展，结束
+                continue
+            news_queries.add(query)
+            raw_args = {"query": query}
+        else:
+            if action in called:
+                done = True  # 重复调用同一工具：无进展，结束
+                continue
+            called.add(action)
+            raw_args = _research_tool_args(state, action)
+
+        out, tc = _call_tool(ctx, "research", action, raw_args)
         tool_calls.append(tc)
         if action == "get_market_data":
             market_data = out
@@ -274,6 +306,8 @@ def _research_react(
             knowledge = out
         elif action == "get_company_profile":
             profile = out
+        elif action == "search_news":
+            news.append(out)
 
         if _research_result_empty(action, out):
             unknowns.append(f"{action} 无结果")
@@ -282,11 +316,11 @@ def _research_react(
     if not done and rounds >= max_rounds:
         unknowns.append("达到研究轮数上限，证据可能不足")
 
-    return tool_calls, market_data, knowledge, profile, unknowns, rounds
+    return tool_calls, market_data, knowledge, profile, news, unknowns, rounds
 
 
-def _build_research_summary(state: AgentState, market_data, knowledge, profile) -> str:
-    """汇总研究结果；知识库答案与公司概况详情一并保留，让报告能看到完整内容。"""
+def _build_research_summary(state: AgentState, market_data, knowledge, profile, news_list) -> str:
+    """汇总研究结果；知识库答案、公司概况与新闻舆情详情一并保留，让报告能看到完整内容。"""
     lines: list[str] = []
     if market_data is not None:
         src = f"（来源 {market_data.source}）" if market_data.source else ""
@@ -299,14 +333,18 @@ def _build_research_summary(state: AgentState, market_data, knowledge, profile) 
     if profile is not None:
         desc = " / ".join(x for x in (profile.name, profile.sector, profile.exchange) if x)
         lines.append(f"公司概况：{profile.symbol} {desc}".strip())
+    if news_list:
+        items = [it for out in news_list for it in out.items]
+        titles = "；".join((it.title or "")[:60] for it in items[:5])
+        lines.append(f"新闻舆情：{len(items)} 条：{titles}")
     body = "\n".join(lines) if lines else "无检索结果"
     return f"研究 {state.user_query[:40]}：\n{body}"
 
 
 def research_node(state: AgentState, ctx: RuntimeContext) -> dict:
-    tool_calls, market_data, knowledge, profile, unknowns, rounds = _research_react(ctx, state)
+    tool_calls, market_data, knowledge, profile, news, unknowns, rounds = _research_react(ctx, state)
 
-    summary = _build_research_summary(state, market_data, knowledge, profile)
+    summary = _build_research_summary(state, market_data, knowledge, profile, news)
     if unknowns:
         summary += "\n未查到/证据不足：" + "；".join(unknowns)
 
@@ -315,6 +353,8 @@ def research_node(state: AgentState, ctx: RuntimeContext) -> dict:
         evidence.append(market_data.source)
     if knowledge is not None:
         evidence.extend(m.url for m in knowledge.matches if m.url)
+    for out in news:
+        evidence.extend(it.url for it in out.items if it.url)
     snapshot_id = market_data.snapshot_id if market_data is not None else ""
 
     out = ResearchOutput(
@@ -493,6 +533,8 @@ def fact_check_node(state: AgentState, ctx: RuntimeContext) -> dict:
             Claim(field="annual_return", value=m.annual_return, source_ref=state.backtest_result_ref),
             Claim(field="max_drawdown", value=m.max_drawdown, source_ref=state.backtest_result_ref),
             Claim(field="sharpe", value=m.sharpe, source_ref=state.backtest_result_ref),
+            Claim(field="var_95", value=m.var_95, source_ref=state.backtest_result_ref),
+            Claim(field="annual_volatility", value=m.annual_volatility, source_ref=state.backtest_result_ref),
         ]
         verified, tc_verify = _call_tool(
             ctx,
@@ -535,6 +577,8 @@ def _deterministic_summary(facts: dict) -> str:
         perf = (
             f"年化收益 {m.get('annual_return', 0):.2%}、"
             f"最大回撤 {m.get('max_drawdown', 0):.2%}、"
+            f"年化波动率 {m.get('annual_volatility', 0):.2%}、"
+            f"单日VaR(95) {m.get('var_95', 0):.2%}、"
             f"夏普 {m.get('sharpe', 0):.2f}"
         )
     else:
@@ -559,20 +603,29 @@ def _generate_summary(ctx: RuntimeContext, facts: dict) -> str:
     return out
 
 
+# 置信水平常量（VaR 固定 95% 置信；模型可能写出 90%/95%/99% 等，属于描述而非指标数字）
+_CONFIDENCE_LEVELS = (0.90, 0.95, 0.975, 0.99, 0.999)
+
+
+def _is_confidence_level(v: float) -> bool:
+    return any(abs(v - c) <= 0.005 for c in _CONFIDENCE_LEVELS)
+
+
 def _verify_summary_claims(summary: str, facts: dict) -> tuple[list[str], int]:
     """从总结里抽出所有百分比 + 夏普数字，逐个与真实指标比对。
 
     比固定正则更稳：无论「年化收益为 45%」「45% 的年化收益」「年化收益率达到45%」都能抓到。
-    任何百分比只要对不上任意一个真实值（三指标 + 成本 + 三档成本场景），就算不符。
-    返回 (不符列表, 实际核查条数)。
+    任何百分比只要对不上任意一个真实值（三指标 + VaR/波动率 + 成本 + 三档成本场景），就算不符。
+    置信水平（95%/99% 等）是常量不是指标数字，予以跳过，避免把 LLM 正常的「95% 置信」
+    误判成编造数字。返回 (不符列表, 实际核查条数)。
     """
     metrics = facts.get("metrics") or {}
     if not metrics:
         return [], 0
 
-    # 可接受的真实值集合：三个指标 + 交易成本 + 三档成本场景里的百分比指标
+    # 可接受的真实值集合：五个指标 + 交易成本 + 三档成本场景里的百分比指标
     acceptable: list[float] = []
-    for k in ("annual_return", "total_return", "max_drawdown"):
+    for k in ("annual_return", "total_return", "max_drawdown", "var_95", "annual_volatility"):
         v = metrics.get(k)
         if v is not None:
             acceptable.append(v)
@@ -586,19 +639,23 @@ def _verify_summary_claims(summary: str, facts: dict) -> tuple[list[str], int]:
                 acceptable.append(v)
 
     mismatches: list[str] = []
+    checked = 0
     pct_claims = [float(m.group(1)) / 100.0 for m in re.finditer(r"(-?\d+(?:\.\d+)?)\s*%", summary)]
-    checked = len(pct_claims)
     for pct in pct_claims:
+        if _is_confidence_level(pct):
+            continue  # 95%/99% 置信水平等常量，不是收益/回撤类指标数字
+        checked += 1
         if not any(abs(pct - v) <= 0.01 for v in acceptable):
             mismatches.append(f"百分比 {pct:.2%} 与真实指标不符")
 
     # 夏普（比率，非百分比）：只认「夏普」附近的数字
     m = re.search(r"夏普[^\d-]*(-?\d+(?:\.\d+)?)", summary)
     if m and metrics.get("sharpe") is not None:
-        checked += 1
         claimed = float(m.group(1))
-        if abs(claimed - metrics["sharpe"]) > 0.5:
-            mismatches.append(f"夏普：总结声称 {claimed:.2f}，实际 {metrics['sharpe']:.2f}")
+        if not _is_confidence_level(claimed):  # 别把「夏普…95%置信」里的 95 当夏普
+            checked += 1
+            if abs(claimed - metrics["sharpe"]) > 0.5:
+                mismatches.append(f"夏普：总结声称 {claimed:.2f}，实际 {metrics['sharpe']:.2f}")
     return mismatches, checked
 
 
@@ -621,7 +678,9 @@ def report_node(state: AgentState, ctx: RuntimeContext) -> dict:
         tool_calls.append(tc)
         m = bt.metrics
         metrics_text = (
-            f"年化 {m.annual_return:.2%} / 最大回撤 {m.max_drawdown:.2%} / 夏普 {m.sharpe:.2f}"
+            f"年化 {m.annual_return:.2%} / 最大回撤 {m.max_drawdown:.2%} / "
+            f"夏普 {m.sharpe:.2f} / 年化波动率 {m.annual_volatility:.2%} / "
+            f"单日VaR(95) {m.var_95:.2%}"
         )
         facts["metrics"] = m.model_dump()
         payload = load_result(state.backtest_result_ref)

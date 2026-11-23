@@ -1,6 +1,6 @@
 """确定性回测引擎。
 
-用历史收盘价做等权买入持有的向量化回测，输出年化收益 / 最大回撤 / 夏普。
+用历史收盘价做等权买入持有的向量化回测，输出年化收益 / 最大回撤 / 夏普 / 单日 VaR / 年化波动率。
 结果按 ref 存入持久化存储（起 SQLite，见 store.py），GetBacktestResult 按 ref 取回；
 State 只存 ref，完整结果外置，跨进程可复现。
 """
@@ -66,13 +66,20 @@ def run_backtest_series(
     drawdown = 1.0 - cum / cum.cummax()
     max_drawdown = float(drawdown.max())
     std = float(port.std(ddof=1))
+    if not math.isfinite(std):
+        std = 0.0
     sharpe = float(port.mean() / std * math.sqrt(252.0)) if std > 0 else 0.0
+    annual_volatility = std * math.sqrt(252.0)
+    # 历史模拟法单日 VaR：95% 置信度下最坏 5% 的损失幅度（正数；无损失则取 0）
+    var_95 = float(max(-float(port.quantile(0.05)), 0.0))
 
     metrics = BacktestMetrics(
         annual_return=round(annual_return, 6),
         total_return=round(total_return, 6),
         max_drawdown=round(max_drawdown, 6),
         sharpe=round(sharpe, 6),
+        var_95=round(var_95, 6),
+        annual_volatility=round(annual_volatility, 6),
     )
     return {
         "metrics": metrics,

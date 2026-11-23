@@ -65,6 +65,12 @@ class Settings(BaseSettings):
     graphrag_enabled: bool = False
     graphrag_root: str = ""  # 本地 graphrag 根目录（settings.yaml + out/ 所在）；空则用包内 src/qagent/data
 
+    # 新闻/舆情（search_news）：不配 key 时用桩；配 Tavily API key 接真实新闻搜索
+    tavily_api_key: str = Field(
+        default="",
+        validation_alias=AliasChoices("QAGENT_TAVILY_API_KEY", "TAVILY_API_KEY"),
+    )
+
     def ensure_dirs(self) -> None:
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.artifact_dir.mkdir(parents=True, exist_ok=True)
